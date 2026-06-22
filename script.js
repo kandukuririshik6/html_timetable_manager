@@ -194,6 +194,8 @@
             if (clearClassesBtn) clearClassesBtn.addEventListener('click', clearClassSections);
             const exportClassesBtn = document.getElementById('exportClassSectionsBtn');
             if (exportClassesBtn) exportClassesBtn.addEventListener('click', exportClassSectionsCSV);
+            const importClassesInput = document.getElementById('importClassSectionsFile');
+            if (importClassesInput) importClassesInput.addEventListener('change', handleImportClassSectionsCSV);
             document.getElementById('saveMasterDataBtn').addEventListener('click', saveMasterDataFromTables);
             document.getElementById('downloadDataTemplatesBtn').addEventListener('click', downloadMasterDataTemplates);
             document.getElementById('generatePromptBtn').addEventListener('click', renderAIPrompt);
@@ -682,6 +684,76 @@
             saveMasterDataToStorage();
             renderClassSectionsTable();
             updateClassFilters();
+        }
+
+        function handleImportClassSectionsCSV(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const rows = parseCSVRows(e.target.result);
+                    if (!rows || rows.length === 0) {
+                        alert('Empty or invalid CSV');
+                        return;
+                    }
+
+                    // Detect header
+                    let start = 0;
+                    const first = rows[0].map(c => toCleanString(c).toLowerCase());
+                    const hasHeader = first.includes('class') || first.includes('section') || first.includes('class-section') || first.includes('class section');
+                    if (hasHeader) start = 1;
+
+                    const parsed = [];
+                    for (let i = start; i < rows.length; i++) {
+                        const cols = rows[i];
+                        if (!cols || cols.length === 0) continue;
+                        if (cols.length === 1) {
+                            const cell = toCleanString(cols[0]);
+                            if (!cell) continue;
+                            // try formats like 10-A or 10:A or Class-10-A
+                            const parts = cell.split(/[-:]/).filter(Boolean);
+                            if (parts.length >= 2) {
+                                const cls = parts[0].replace(/^class|^grade\s*/i, '').trim();
+                                const sec = parts[1].trim();
+                                parsed.push({ className: `Class-${cls}-${sec}`, class: cls, section: sec });
+                            }
+                            continue;
+                        }
+
+                        // use first two columns
+                        const rawClass = toCleanString(cols[0]);
+                        const rawSection = toCleanString(cols[1]);
+                        if (!rawClass || !rawSection) continue;
+                        const cls = rawClass.replace(/^class|^grade\s*/i, '');
+                        const sec = rawSection;
+                        parsed.push({ className: `Class-${cls}-${sec}`, class: cls, section: sec });
+                    }
+
+                    if (parsed.length === 0) {
+                        alert('No valid class-section rows found in CSV.');
+                        return;
+                    }
+
+                    // merge with existing
+                    const existing = (state.classSections || []).filter(Boolean);
+                    const mergedMap = new Map();
+                    existing.forEach(e => { if (e && e.className) mergedMap.set(e.className, e); });
+                    parsed.forEach(p => { if (p && p.className) mergedMap.set(p.className, p); });
+                    state.classSections = Array.from(mergedMap.values()).sort((a,b)=>safeLocaleCompare(a.className, b.className));
+                    saveMasterDataToStorage();
+                    renderClassSectionsTable();
+                    updateClassFilters();
+                    alert('Imported ' + parsed.length + ' class-section rows.');
+                } catch (err) {
+                    console.error(err);
+                    alert('Failed to import CSV');
+                } finally {
+                    // reset input so same file can be reselected
+                    event.target.value = '';
+                }
+            };
+            reader.readAsText(file);
         }
 
         function saveMasterDataFromTablesWithoutAlert() {
