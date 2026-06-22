@@ -13,6 +13,7 @@
             teacherSubjectMap: {},
             teachers: [],
             teacherMappings: [],
+            classSections: [],
             config: {
                 schoolDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
                 periodsPerDay: 8,
@@ -55,6 +56,7 @@
             const storedTeachers = localStorage.getItem('teacherMasterList');
             const storedTeacherMappings = localStorage.getItem('teacherGradeSubjectMappings');
             const storedConfig = localStorage.getItem('timetableConfig');
+            const storedClassSections = localStorage.getItem('classSections');
             
             if (storedTimetable) {
                 state.timetableData = JSON.parse(storedTimetable);
@@ -82,6 +84,14 @@
 
             if (storedTeacherMappings) {
                 state.teacherMappings = JSON.parse(storedTeacherMappings);
+            }
+
+            if (storedClassSections) {
+                try {
+                    state.classSections = JSON.parse(storedClassSections) || [];
+                } catch(e) {
+                    state.classSections = [];
+                }
             }
 
             if (storedConfig) {
@@ -117,6 +127,7 @@
             localStorage.setItem('teacherMasterList', JSON.stringify(state.teachers || []));
             localStorage.setItem('teacherGradeSubjectMappings', JSON.stringify(state.teacherMappings || []));
             localStorage.setItem('timetableConfig', JSON.stringify(state.config || {}));
+            localStorage.setItem('classSections', JSON.stringify(state.classSections || []));
         }
         
         // Set up tab navigation
@@ -153,6 +164,12 @@
             document.getElementById('teacherMappingFileInput').addEventListener('change', handleTeacherMappingUpload);
             document.getElementById('addTeacherRowBtn').addEventListener('click', addTeacherRow);
             document.getElementById('addMappingRowBtn').addEventListener('click', addMappingRow);
+            const genClassesBtn = document.getElementById('generateClassSectionsBtn');
+            if (genClassesBtn) genClassesBtn.addEventListener('click', generateClassSectionsFromInput);
+            const clearClassesBtn = document.getElementById('clearClassSectionsBtn');
+            if (clearClassesBtn) clearClassesBtn.addEventListener('click', clearClassSections);
+            const exportClassesBtn = document.getElementById('exportClassSectionsBtn');
+            if (exportClassesBtn) exportClassesBtn.addEventListener('click', exportClassSectionsCSV);
             document.getElementById('saveMasterDataBtn').addEventListener('click', saveMasterDataFromTables);
             document.getElementById('downloadDataTemplatesBtn').addEventListener('click', downloadMasterDataTemplates);
             document.getElementById('generatePromptBtn').addEventListener('click', renderAIPrompt);
@@ -255,6 +272,7 @@
             syncConfigInputs();
             renderTeacherMasterTable();
             renderTeacherMappingTable();
+            renderClassSectionsTable();
             updateSetupSummary();
             renderAIPrompt();
             renderHolidays();
@@ -544,6 +562,85 @@
             state.teacherMappings.push({ id: '', teacherId: '', teacherName: '', gradeSection: '', subject: '', periodsPerWeek: '' });
             renderTeacherMappingTable();
             updateSetupSummary();
+        }
+
+        // --- Bulk Classes & Sections functions ---
+        function generateClassSectionsFromInput() {
+            const input = document.getElementById('bulkClassesInput');
+            if (!input) return;
+            const lines = input.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+            const parsed = parseBulkClassesInput(lines);
+            state.classSections = Array.from(new Set((state.classSections || []).concat(parsed))).sort((a,b)=>safeLocaleCompare(a,b));
+            saveMasterDataToStorage();
+            renderClassSectionsTable();
+            updateClassFilters();
+            alert('Generated ' + parsed.length + ' class-section entries.');
+        }
+
+        function parseBulkClassesInput(lines) {
+            const out = [];
+            lines.forEach(line => {
+                // Expect formats like "10:A,B" or "5:A"
+                const parts = line.split(':');
+                const classPart = parts[0] ? toCleanString(parts[0]) : '';
+                const sectionsPart = parts[1] ? parts[1] : '';
+                if (!classPart) return;
+                const sections = sectionsPart ? sectionsPart.split(',').map(s => toCleanString(s)).filter(Boolean) : ['A'];
+                sections.forEach(sec => {
+                    const label = `Class-${classPart}-${sec}`;
+                    out.push(label);
+                });
+            });
+            return out;
+        }
+
+        function renderClassSectionsTable() {
+            const table = document.getElementById('classSectionsTable');
+            if (!table) return;
+            const rows = state.classSections || [];
+            table.innerHTML = `
+                <thead><tr><th>Class-Section</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${rows.map((c, i) => `
+                        <tr data-index="${i}">
+                            <td>${escapeHtml(c)}</td>
+                            <td><button class="btn btn-danger btn-sm" onclick="deleteClassSection(${i})"><i class="fas fa-trash"></i></button></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+        }
+
+        function deleteClassSection(index) {
+            state.classSections = state.classSections || [];
+            if (index < 0 || index >= state.classSections.length) return;
+            state.classSections.splice(index, 1);
+            saveMasterDataToStorage();
+            renderClassSectionsTable();
+            updateClassFilters();
+        }
+
+        function exportClassSectionsCSV() {
+            const rows = state.classSections || [];
+            if (rows.length === 0) { alert('No class sections to export.'); return; }
+            const csv = 'Class-Section\n' + rows.join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'class-sections.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function clearClassSections() {
+            if (!confirm('Clear all generated class-section entries?')) return;
+            state.classSections = [];
+            saveMasterDataToStorage();
+            renderClassSectionsTable();
+            updateClassFilters();
         }
 
         function saveMasterDataFromTablesWithoutAlert() {
@@ -1777,8 +1874,11 @@ Return CSV now.`;
         function updateClassFilters() {
             if (!state.timetableData) return;
             
-            const classes = Object.keys(state.timetableData)
-                .sort((a, b) => safeLocaleCompare(a, b));
+            // Combine classes from loaded timetable data and generated classSections
+            const classSet = new Set();
+            if (state.timetableData) Object.keys(state.timetableData).forEach(c => classSet.add(c));
+            (state.classSections || []).forEach(c => classSet.add(c));
+            const classes = Array.from(classSet).sort((a, b) => safeLocaleCompare(a, b));
             
             // Update class filter in View Timetable
             const classFilter = document.getElementById('classFilter');
