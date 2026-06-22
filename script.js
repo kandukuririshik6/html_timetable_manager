@@ -14,6 +14,7 @@
             teachers: [],
             teacherMappings: [],
             classSections: [],
+            subjects: [],
             config: {
                 schoolDays: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],
                 periodsPerDay: 8,
@@ -86,6 +87,7 @@
                 state.teacherMappings = JSON.parse(storedTeacherMappings);
             }
 
+            const storedSubjects = localStorage.getItem('subjects');
             if (storedClassSections) {
                 try {
                     const parsed = JSON.parse(storedClassSections) || [];
@@ -115,6 +117,17 @@
                     }).filter(Boolean);
                 } catch(e) {
                     state.classSections = [];
+                }
+            }
+            if (storedSubjects) {
+                try {
+                    const parsedSubjects = JSON.parse(storedSubjects) || [];
+                    state.subjects = (parsedSubjects || [])
+                        .map(item => toCleanString(item))
+                        .filter(Boolean)
+                        .sort((a, b) => safeLocaleCompare(a, b));
+                } catch(e) {
+                    state.subjects = [];
                 }
             }
 
@@ -152,6 +165,7 @@
             localStorage.setItem('teacherGradeSubjectMappings', JSON.stringify(state.teacherMappings || []));
             localStorage.setItem('timetableConfig', JSON.stringify(state.config || {}));
             localStorage.setItem('classSections', JSON.stringify(state.classSections || []));
+            localStorage.setItem('subjects', JSON.stringify(state.subjects || []));
         }
         
         // Set up tab navigation
@@ -196,6 +210,14 @@
             if (exportClassesBtn) exportClassesBtn.addEventListener('click', exportClassSectionsCSV);
             const importClassesInput = document.getElementById('importClassSectionsFile');
             if (importClassesInput) importClassesInput.addEventListener('change', handleImportClassSectionsCSV);
+            const genSubjectsBtn = document.getElementById('generateSubjectsBtn');
+            if (genSubjectsBtn) genSubjectsBtn.addEventListener('click', generateSubjectsFromInput);
+            const clearSubjectsBtn = document.getElementById('clearSubjectsBtn');
+            if (clearSubjectsBtn) clearSubjectsBtn.addEventListener('click', clearSubjects);
+            const exportSubjectsBtn = document.getElementById('exportSubjectsBtn');
+            if (exportSubjectsBtn) exportSubjectsBtn.addEventListener('click', exportSubjectsCSV);
+            const importSubjectsInput = document.getElementById('importSubjectsFile');
+            if (importSubjectsInput) importSubjectsInput.addEventListener('change', handleImportSubjectsCSV);
             document.getElementById('saveMasterDataBtn').addEventListener('click', saveMasterDataFromTables);
             document.getElementById('downloadDataTemplatesBtn').addEventListener('click', downloadMasterDataTemplates);
             document.getElementById('generatePromptBtn').addEventListener('click', renderAIPrompt);
@@ -299,6 +321,7 @@
             renderTeacherMasterTable();
             renderTeacherMappingTable();
             renderClassSectionsTable();
+            renderSubjectsTable();
             updateSetupSummary();
             renderAIPrompt();
             renderHolidays();
@@ -532,21 +555,40 @@
         function renderTeacherMappingTable() {
             const table = document.getElementById('teacherMappingTable');
             const rows = state.teacherMappings || [];
+            const classOptions = getClassSectionOptions();
+            const subjectOptions = getSubjectOptions();
             table.innerHTML = `
                 <thead>
                     <tr><th>Teacher ID</th><th>Teacher Name</th><th>Grade-Section</th><th>Subject</th><th>Periods / Week</th><th>Action</th></tr>
                 </thead>
                 <tbody>
-                    ${rows.map((mapping, index) => `
+                    ${rows.map((mapping, index) => {
+                        const gradeValue = mapping.gradeSection ? escapeHtml(mapping.gradeSection) : '';
+                        const subjectValue = mapping.subject ? escapeHtml(mapping.subject) : '';
+                        return `
                         <tr data-index="${index}">
                             <td><input value="${escapeHtml(mapping.teacherId)}" data-field="teacherId"></td>
                             <td><input value="${escapeHtml(mapping.teacherName)}" data-field="teacherName"></td>
-                            <td><input value="${escapeHtml(mapping.gradeSection)}" data-field="gradeSection"></td>
-                            <td><input value="${escapeHtml(mapping.subject)}" data-field="subject"></td>
+                            <td>
+                                <select data-field="gradeSection">
+                                    <option value=""></option>
+                                    ${classOptions.map(option => `
+                                        <option value="${escapeHtml(option.label)}"${option.label === gradeValue ? ' selected' : ''}>${escapeHtml(option.label)}</option>
+                                    `).join('')}
+                                </select>
+                            </td>
+                            <td>
+                                <select data-field="subject">
+                                    <option value=""></option>
+                                    ${subjectOptions.map(option => `
+                                        <option value="${escapeHtml(option)}"${option === subjectValue ? ' selected' : ''}>${escapeHtml(option)}</option>
+                                    `).join('')}
+                                </select>
+                            </td>
                             <td><input type="number" min="0" value="${escapeHtml(mapping.periodsPerWeek)}" data-field="periodsPerWeek"></td>
                             <td><button class="btn btn-danger btn-sm" onclick="deleteMappingRow(${index})"><i class="fas fa-trash"></i></button></td>
                         </tr>
-                    `).join('')}
+                    `}).join('')}
                 </tbody>
             `;
         }
@@ -700,6 +742,102 @@
                     `).join('')}
                 </tbody>
             `;
+        }
+
+        function renderSubjectsTable() {
+            const table = document.getElementById('subjectsTable');
+            if (!table) return;
+            const rows = state.subjects || [];
+            table.innerHTML = `
+                <thead><tr><th>Subject</th><th>Action</th></tr></thead>
+                <tbody>
+                    ${rows.map((subject, i) => `
+                        <tr data-index="${i}">
+                            <td>${escapeHtml(subject)}</td>
+                            <td><button class="btn btn-danger btn-sm" onclick="deleteSubject(${i})"><i class="fas fa-trash"></i></button></td>
+                        </tr>
+                    `).join('')}
+                </tbody>
+            `;
+        }
+
+        function getSubjectOptions() {
+            return (state.subjects || []).slice().sort((a, b) => safeLocaleCompare(a, b));
+        }
+
+        function generateSubjectsFromInput() {
+            const input = document.getElementById('bulkSubjectsInput');
+            if (!input) return;
+            const lines = input.value.split(/\r?\n/).map(l => toCleanString(l)).filter(Boolean);
+            const uniques = new Set((state.subjects || []).map(s => toCleanString(s)));
+            lines.forEach(subject => {
+                if (subject) uniques.add(subject);
+            });
+            state.subjects = Array.from(uniques).sort((a, b) => safeLocaleCompare(a, b));
+            saveMasterDataToStorage();
+            renderSubjectsTable();
+            alert('Generated ' + lines.length + ' subject entries.');
+        }
+
+        function clearSubjects() {
+            if (!confirm('Clear all subjects?')) return;
+            state.subjects = [];
+            saveMasterDataToStorage();
+            renderSubjectsTable();
+        }
+
+        function exportSubjectsCSV() {
+            const rows = state.subjects || [];
+            if (rows.length === 0) { alert('No subjects to export.'); return; }
+            const csv = 'Subject\n' + rows.map(escapeCSVField).join('\n');
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'subjects.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function handleImportSubjectsCSV(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const rows = parseCSVRows(e.target.result);
+                    if (!rows || rows.length === 0) {
+                        alert('Empty or invalid CSV');
+                        return;
+                    }
+                    let start = 0;
+                    const header = rows[0].map(c => toCleanString(c).toLowerCase());
+                    if (header.includes('subject')) start = 1;
+                    const parsed = [];
+                    for (let i = start; i < rows.length; i++) {
+                        const val = toCleanString(rows[i][0] || '');
+                        if (val) parsed.push(val);
+                    }
+                    if (parsed.length === 0) {
+                        alert('No valid subject rows found in CSV.');
+                        return;
+                    }
+                    const uniques = new Set((state.subjects || []).map(s => toCleanString(s)));
+                    parsed.forEach(subject => uniques.add(subject));
+                    state.subjects = Array.from(uniques).sort((a, b) => safeLocaleCompare(a, b));
+                    saveMasterDataToStorage();
+                    renderSubjectsTable();
+                    alert('Imported ' + parsed.length + ' subject rows.');
+                } catch (err) {
+                    console.error(err);
+                    alert('Failed to import CSV');
+                } finally {
+                    event.target.value = ''; 
+                }
+            };
+            reader.readAsText(file);
         }
 
         function deleteClassSection(index) {

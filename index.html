@@ -136,6 +136,24 @@
                         <table class="editable-table" id="classSectionsTable"></table>
                     </div>
                 </div>
+                <div class="setup-panel">
+                    <h3><i class="fas fa-book-open"></i> Bulk Subjects</h3>
+                    <p>Enter one subject per line, or import a CSV with a <code>Subject</code> header.</p>
+                    <div class="form-group">
+                        <label for="bulkSubjectsInput">Bulk Subjects Input</label>
+                        <textarea id="bulkSubjectsInput" class="form-control" rows="4" placeholder="Example:\nMathematics\nEnglish\nEVS"></textarea>
+                    </div>
+                    <div class="setup-actions">
+                        <button class="btn btn-primary" id="generateSubjectsBtn"><i class="fas fa-magic"></i> Generate Subjects</button>
+                        <button class="btn btn-secondary" id="clearSubjectsBtn"><i class="fas fa-trash"></i> Clear</button>
+                        <input type="file" id="importSubjectsFile" accept=".csv,.txt" style="display:none">
+                        <label class="btn btn-primary" for="importSubjectsFile"><i class="fas fa-file-upload"></i> Import CSV</label>
+                        <button class="btn btn-outline" id="exportSubjectsBtn"><i class="fas fa-file-download"></i> Export CSV</button>
+                    </div>
+                    <div class="editable-table-wrap">
+                        <table class="editable-table" id="subjectsTable"></table>
+                    </div>
+                </div>
             </div>
 
             <div class="setup-panel config-panel">
