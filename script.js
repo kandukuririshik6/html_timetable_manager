@@ -88,7 +88,31 @@
 
             if (storedClassSections) {
                 try {
-                    state.classSections = JSON.parse(storedClassSections) || [];
+                    const parsed = JSON.parse(storedClassSections) || [];
+                    state.classSections = (parsed || []).map(item => {
+                        // support legacy string entries and object entries
+                        if (!item) return null;
+                        if (typeof item === 'string') {
+                            // expected formats: 'Class-10-A' or '10-A' or '10:A'
+                            const s = item.trim();
+                            const parts = s.split(/[-:]/).filter(Boolean);
+                            if (parts.length >= 3 && parts[0].toLowerCase() === 'class') {
+                                return { className: `Class-${parts[1]}-${parts[2]}`, class: parts[1], section: parts[2] };
+                            } else if (parts.length >= 2) {
+                                return { className: `Class-${parts[0]}-${parts[1]}`, class: parts[0], section: parts[1] };
+                            }
+                            return null;
+                        }
+                        if (typeof item === 'object') {
+                            // already structured
+                            if (item.className && item.section) return item;
+                            const cls = item.class || item.grade || item.gradeSection || '';
+                            const sec = item.section || item.sec || '';
+                            if (cls && sec) return { className: `Class-${cls}-${sec}`, class: cls, section: sec };
+                            return null;
+                        }
+                        return null;
+                    }).filter(Boolean);
                 } catch(e) {
                     state.classSections = [];
                 }
@@ -570,7 +594,18 @@
             if (!input) return;
             const lines = input.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
             const parsed = parseBulkClassesInput(lines);
-            state.classSections = Array.from(new Set((state.classSections || []).concat(parsed))).sort((a,b)=>safeLocaleCompare(a,b));
+            // merge parsed (objects) with existing, dedupe by className
+            const existing = (state.classSections || []).filter(Boolean);
+            const mergedMap = new Map();
+            existing.forEach(e => {
+                if (typeof e === 'string') return; // legacy will be normalized elsewhere
+                if (e.className) mergedMap.set(e.className, e);
+            });
+            parsed.forEach(p => {
+                // p is {className, class, section}
+                if (p && p.className) mergedMap.set(p.className, p);
+            });
+            state.classSections = Array.from(mergedMap.values()).sort((a,b)=>safeLocaleCompare(a.className, b.className));
             saveMasterDataToStorage();
             renderClassSectionsTable();
             updateClassFilters();
@@ -580,15 +615,18 @@
         function parseBulkClassesInput(lines) {
             const out = [];
             lines.forEach(line => {
-                // Expect formats like "10:A,B" or "5:A"
+                // Expect formats like "10:A,B" or "5:A" or "10:A" or "10-A,B"
                 const parts = line.split(':');
-                const classPart = parts[0] ? toCleanString(parts[0]) : '';
-                const sectionsPart = parts[1] ? parts[1] : '';
-                if (!classPart) return;
-                const sections = sectionsPart ? sectionsPart.split(',').map(s => toCleanString(s)).filter(Boolean) : ['A'];
+                const left = parts[0] ? toCleanString(parts[0]) : '';
+                const right = parts[1] ? parts[1] : '';
+                if (!left) return;
+                const classPart = left.replace(/^Grade\s*/i, '').replace(/^Class\s*/i, '');
+                const sections = right ? right.split(',').map(s => toCleanString(s)).filter(Boolean) : ['A'];
                 sections.forEach(sec => {
-                    const label = `Class-${classPart}-${sec}`;
-                    out.push(label);
+                    const cls = classPart;
+                    const s = sec;
+                    const className = `Class-${cls}-${s}`;
+                    out.push({ className, class: cls, section: s });
                 });
             });
             return out;
@@ -599,11 +637,12 @@
             if (!table) return;
             const rows = state.classSections || [];
             table.innerHTML = `
-                <thead><tr><th>Class-Section</th><th>Action</th></tr></thead>
+                <thead><tr><th>Class</th><th>Section</th><th>Action</th></tr></thead>
                 <tbody>
                     ${rows.map((c, i) => `
                         <tr data-index="${i}">
-                            <td>${escapeHtml(c)}</td>
+                            <td>${escapeHtml(c.class || '')}</td>
+                            <td>${escapeHtml(c.section || '')}</td>
                             <td><button class="btn btn-danger btn-sm" onclick="deleteClassSection(${i})"><i class="fas fa-trash"></i></button></td>
                         </tr>
                     `).join('')}
@@ -623,7 +662,9 @@
         function exportClassSectionsCSV() {
             const rows = state.classSections || [];
             if (rows.length === 0) { alert('No class sections to export.'); return; }
-            const csv = 'Class-Section\n' + rows.join('\n');
+            const header = 'Class,Section\n';
+            const lines = rows.map(r => `${escapeCSVField(r.class || '')},${escapeCSVField(r.section || '')}`);
+            const csv = header + lines.join('\n');
             const blob = new Blob([csv], { type: 'text/csv' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -1877,7 +1918,10 @@ Return CSV now.`;
             // Combine classes from loaded timetable data and generated classSections
             const classSet = new Set();
             if (state.timetableData) Object.keys(state.timetableData).forEach(c => classSet.add(c));
-            (state.classSections || []).forEach(c => classSet.add(c));
+            (state.classSections || []).forEach(c => {
+                if (!c) return;
+                classSet.add(c.className || (typeof c === 'string' ? c : `${c.class || ''}-${c.section || ''}`));
+            });
             const classes = Array.from(classSet).sort((a, b) => safeLocaleCompare(a, b));
             
             // Update class filter in View Timetable
