@@ -455,6 +455,7 @@
                 const gradeIndex = findHeaderIndex(headers, ['grade-section', 'class-section', 'class', 'grade section']);
                 const subjectIndex = findHeaderIndex(headers, ['subject']);
                 const periodsIndex = findHeaderIndex(headers, ['periods per week', 'periodsperweek', 'periods', 'weekly periods']);
+                const fixedPeriodsIndex = findHeaderIndex(headers, ['fixed periods', 'fixedperiods', 'fixed']);
 
                 if (gradeIndex === -1 || subjectIndex === -1) {
                     alert("Mapping CSV must include Grade-Section and Subject columns.");
@@ -471,7 +472,8 @@
                             teacherName,
                             gradeSection: normalizeClassSectionLabel(cells[gradeIndex]),
                             subject: toCleanString(cells[subjectIndex]),
-                            periodsPerWeek: periodsIndex >= 0 ? toCleanString(cells[periodsIndex]) : ''
+                            periodsPerWeek: periodsIndex >= 0 ? toCleanString(cells[periodsIndex]) : '',
+                            fixedPeriods: fixedPeriodsIndex >= 0 ? toCleanString(cells[fixedPeriodsIndex]) : ''
                         };
                     })
                     .filter(row => row.gradeSection && row.subject && (row.teacherId || row.teacherName));
@@ -579,15 +581,18 @@
             const rows = state.teacherMappings || [];
             const classOptions = getClassSectionOptions();
             const baseSubjectOptions = getSubjectOptions(); // array of { code, name }
+            const periodOptions = getPeriodOptions();
             table.innerHTML = `
                 <thead>
-                    <tr><th>Teacher ID</th><th>Grade-Section</th><th>Subject</th><th>Periods / Week</th><th>Action</th></tr>
+                    <tr><th>Teacher ID</th><th>Grade-Section</th><th>Subject</th><th>Periods / Week</th><th>Fixed Periods</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                     ${rows.map((mapping, index) => {
                         const gradeValue = mapping.gradeSection ? escapeHtml(mapping.gradeSection) : '';
                         const gradeValues = mapping.gradeSection ? mapping.gradeSection.split(',') : [];
                         const subjectValue = mapping.subject ? escapeHtml(mapping.subject) : '';
+                        const fixedPeriodsValue = mapping.fixedPeriods ? escapeHtml(mapping.fixedPeriods) : '';
+                        const fixedPeriodsValues = mapping.fixedPeriods ? mapping.fixedPeriods.split(',') : [];
                         
                         // Dynamically ensure the current value is part of the dropdown options
                         const rowSubjectOptions = [...baseSubjectOptions];
@@ -616,11 +621,35 @@
                                 </select>
                             </td>
                             <td><input type="number" min="0" value="${escapeHtml(mapping.periodsPerWeek)}" data-field="periodsPerWeek"></td>
+                            <td>
+                                <select data-field="fixedPeriods" multiple>
+                                    ${periodOptions.map(option => `
+                                        <option value="${escapeHtml(option.value)}"${fixedPeriodsValues.includes(option.value) ? ' selected' : ''}>${escapeHtml(option.label)}</option>
+                                    `).join('')}
+                                </select>
+                            </td>
                             <td><button class="btn btn-danger btn-sm" onclick="deleteMappingRow(${index})"><i class="fas fa-trash"></i></button></td>
                         </tr>
                     `}).join('')}
                 </tbody>
             `;
+        }
+
+        function getPeriodOptions() {
+            const periodsPerDay = state.config.periodsPerDay || 8;
+            const options = [];
+            
+            // Individual periods
+            for (let i = 1; i <= periodsPerDay; i++) {
+                options.push({ value: `P${i}`, label: `P${i}` });
+            }
+            
+            // Combined periods (P1-P2, P2-P3, etc.)
+            for (let i = 1; i < periodsPerDay; i++) {
+                options.push({ value: `P${i}-P${i + 1}`, label: `P${i}-P${i + 1}` });
+            }
+            
+            return options;
         }
 
         function getClassSectionOptions() {
@@ -680,7 +709,7 @@
             
             // Read table data
             const rawTeachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email']);
-            const rawMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek']);
+            const rawMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek', 'fixedPeriods']);
             
             duplicateCheckCache.clear();
             
@@ -740,7 +769,8 @@
                         teacherId: teacherValidation.teacherId,
                         teacherName: findTeacherNameById(mapping.teacherId),
                         gradeSection: normalizeClassSectionLabel(mapping.gradeSection),
-                        subject: subjectValidation.normalized
+                        subject: subjectValidation.normalized,
+                        fixedPeriods: mapping.fixedPeriods || ''
                     };
                     
                     // Check for duplicates
@@ -785,7 +815,7 @@
             state.teachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email'])
                 .map(normalizeTeacherGradeSection)
                 .filter(teacher => teacher.name);
-            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek'])
+            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek', 'fixedPeriods'])
                 .map((mapping, index) => ({
                     ...mapping,
                     id: `M${index + 1}`,
@@ -815,7 +845,7 @@
 
         function addMappingRow() {
             saveMasterDataFromTablesWithoutAlert();
-            state.teacherMappings.push({ id: '', teacherId: '', teacherName: '', gradeSection: '', subject: '', periodsPerWeek: '' });
+            state.teacherMappings.push({ id: '', teacherId: '', teacherName: '', gradeSection: '', subject: '', periodsPerWeek: '', fixedPeriods: '' });
             renderTeacherMappingTable();
             updateSetupSummary();
         }
