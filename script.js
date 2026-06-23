@@ -206,6 +206,8 @@
             document.getElementById('teacherMappingFileInput').addEventListener('change', handleTeacherMappingUpload);
             document.getElementById('addTeacherRowBtn').addEventListener('click', addTeacherRow);
             document.getElementById('addMappingRowBtn').addEventListener('click', addMappingRow);
+            const exportMappingBtn = document.getElementById('exportMappingBtn');
+            if (exportMappingBtn) exportMappingBtn.addEventListener('click', exportTeacherMappingCSV);
             const genClassesBtn = document.getElementById('generateClassSectionsBtn');
             if (genClassesBtn) genClassesBtn.addEventListener('click', generateClassSectionsFromInput);
             const clearClassesBtn = document.getElementById('clearClassSectionsBtn');
@@ -844,8 +846,25 @@
         }
 
         function addMappingRow() {
-            saveMasterDataFromTablesWithoutAlert();
+            // Save current table data without filtering incomplete rows
+            syncConfigFromInputs();
+            state.teachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email'])
+                .map(normalizeTeacherGradeSection)
+                .filter(teacher => teacher.name);
+            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek', 'fixedPeriods'])
+                .map((mapping, index) => ({
+                    ...mapping,
+                    id: mapping.id || `M${index + 1}`,
+                    teacherName: findTeacherNameById(mapping.teacherId),
+                    gradeSection: normalizeClassSectionLabel(mapping.gradeSection)
+                }));
+            
+            // Add new empty row
             state.teacherMappings.push({ id: '', teacherId: '', teacherName: '', gradeSection: '', subject: '', periodsPerWeek: '', fixedPeriods: '' });
+            
+            rebuildTeacherSubjectMapFromMasterData();
+            saveMasterDataToStorage();
+            saveTeacherSubjectMapToStorage();
             renderTeacherMappingTable();
             updateSetupSummary();
         }
@@ -1329,6 +1348,39 @@ Return CSV now.`;
             const a = document.createElement('a');
             a.href = url;
             a.download = 'teacher-list.csv';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function exportTeacherMappingCSV() {
+            const mappings = state.teacherMappings || [];
+            if (mappings.length === 0) {
+                alert('No teacher mappings to export.');
+                return;
+            }
+            
+            const headers = ['Teacher ID', 'Grade-Section', 'Subject', 'Periods Per Week', 'Fixed Periods'];
+            const csvRows = [headers.join(',')];
+            
+            mappings.forEach(mapping => {
+                const row = [
+                    escapeHtml(mapping.teacherId || ''),
+                    escapeHtml(mapping.gradeSection || ''),
+                    escapeHtml(mapping.subject || ''),
+                    escapeHtml(mapping.periodsPerWeek || ''),
+                    escapeHtml(mapping.fixedPeriods || '')
+                ];
+                csvRows.push(row.join(','));
+            });
+            
+            const csv = csvRows.join('\n');
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'teacher-mapping.csv';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
