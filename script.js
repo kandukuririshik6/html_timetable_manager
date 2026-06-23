@@ -581,7 +581,7 @@
             const baseSubjectOptions = getSubjectOptions(); // array of { code, name }
             table.innerHTML = `
                 <thead>
-                    <tr><th>Teacher ID</th><th>Teacher Name</th><th>Grade-Section</th><th>Subject</th><th>Periods / Week</th><th>Action</th></tr>
+                    <tr><th>Teacher ID</th><th>Grade-Section</th><th>Subject</th><th>Periods / Week</th><th>Action</th></tr>
                 </thead>
                 <tbody>
                     ${rows.map((mapping, index) => {
@@ -600,7 +600,6 @@
                         return `
                         <tr data-index="${index}">
                             <td><select data-field="teacherId"><option value=""></option>${(state.teachers || []).map(t => `<option value="${escapeHtml(t.id)}"${t.id === mapping.teacherId ? ' selected' : ''}>${escapeHtml(t.id)} - ${escapeHtml(t.name)}</option>`).join('')}</select></td>
-                            <td><input value="${escapeHtml(mapping.teacherName)}" data-field="teacherName"></td>
                             <td>
                                 <select data-field="gradeSection" multiple>
                                     ${classOptions.map(option => `
@@ -681,7 +680,7 @@
             
             // Read table data
             const rawTeachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email']);
-            const rawMappings = readTableRows('teacherMappingTable', ['teacherId', 'teacherName', 'gradeSection', 'subject', 'periodsPerWeek']);
+            const rawMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek']);
             
             duplicateCheckCache.clear();
             
@@ -718,7 +717,7 @@
                     // Validate required fields
                     const classValidation = validateClassSection(mapping.gradeSection);
                     const subjectValidation = validateSubjectSelection(mapping.subject);
-                    const teacherValidation = validateTeacherSelection(mapping.teacherId, mapping.teacherName);
+                    const teacherValidation = validateTeacherSelection(mapping.teacherId, '');
                     
                     if (!classValidation.valid) {
                         validationResults.warnings.push(`Row ${index + 1}: ${classValidation.error}`);
@@ -739,7 +738,7 @@
                         ...mapping,
                         id: `M${index + 1}`,
                         teacherId: teacherValidation.teacherId,
-                        teacherName: teacherValidation.teacherName || findTeacherNameById(mapping.teacherId),
+                        teacherName: findTeacherNameById(mapping.teacherId),
                         gradeSection: normalizeClassSectionLabel(mapping.gradeSection),
                         subject: subjectValidation.normalized
                     };
@@ -786,14 +785,14 @@
             state.teachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email'])
                 .map(normalizeTeacherGradeSection)
                 .filter(teacher => teacher.name);
-            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'teacherName', 'gradeSection', 'subject', 'periodsPerWeek'])
+            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'gradeSection', 'subject', 'periodsPerWeek'])
                 .map((mapping, index) => ({
                     ...mapping,
                     id: `M${index + 1}`,
-                    teacherName: mapping.teacherName || findTeacherNameById(mapping.teacherId),
+                    teacherName: findTeacherNameById(mapping.teacherId),
                     gradeSection: normalizeClassSectionLabel(mapping.gradeSection)
                 }))
-                .filter(mapping => mapping.gradeSection && mapping.subject && (mapping.teacherId || mapping.teacherName));
+                .filter(mapping => mapping.gradeSection && mapping.subject && mapping.teacherId);
             rebuildTeacherSubjectMapFromMasterData();
             saveMasterDataToStorage();
             saveTeacherSubjectMapToStorage();
@@ -1149,12 +1148,6 @@
                 }
             };
             reader.readAsText(file);
-        }
-
-        function saveMasterDataFromTablesWithoutAlert() {
-            syncConfigFromInputs();
-            state.teachers = readTableRows('teacherMasterTable', ['id', 'name', 'classTeacherSubject', 'classTeacherGrade', 'classTeacherSection', 'phone', 'email']);
-            state.teacherMappings = readTableRows('teacherMappingTable', ['teacherId', 'teacherName', 'gradeSection', 'subject', 'periodsPerWeek']);
         }
 
         function deleteTeacherRow(index) {
