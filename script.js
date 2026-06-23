@@ -1702,6 +1702,14 @@ Return CSV now.`;
             if (!cleaned) return '';
 
             const hyphenated = cleaned.replace(/\s*-\s*/g, '-');
+            
+            // Handle hyphenated format without GRADE prefix (e.g., "I-A", "10-A")
+            const hyphenMatchNoPrefix = hyphenated.match(/^([IVX]+|\d+)-([A-Z])$/i);
+            if (hyphenMatchNoPrefix) {
+                return `Grade-${hyphenMatchNoPrefix[1].toUpperCase()}-${hyphenMatchNoPrefix[2].toUpperCase()}`;
+            }
+            
+            // Handle hyphenated format with GRADE prefix (e.g., "GRADE-I-A", "Grade-I-A")
             const hyphenMatch = hyphenated.match(/^GRADE-?([IVX]+|\d+)-([A-Z])$/i);
             if (hyphenMatch) {
                 return `Grade-${hyphenMatch[1].toUpperCase()}-${hyphenMatch[2].toUpperCase()}`;
